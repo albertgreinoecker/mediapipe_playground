@@ -1,5 +1,7 @@
 import cv2
 import mediapipe as mp
+from mediapipe.tasks import python as mp_tasks
+from mediapipe.tasks.python import vision as mp_vision
 import numpy as np
 
 # ===============================
@@ -138,6 +140,16 @@ PINKY_BOTTOM = 17
 # MEDIAPIPE INIT
 # ===============================
 
+# Modell herunterladen falls nicht vorhanden:
+# wget https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float32/latest/efficientdet_lite0.tflite
+_obj_options = mp_vision.ObjectDetectorOptions(
+    base_options=mp_tasks.BaseOptions(model_asset_path="efficientdet_lite0.tflite"),
+    running_mode=mp_vision.RunningMode.IMAGE,
+    score_threshold=0.5,
+    max_results=5,
+)
+detector = mp_vision.ObjectDetector.create_from_options(_obj_options)
+
 mp_face_mesh = mp.solutions.face_mesh
 mp_hands = mp.solutions.hands
 mp_pose = mp.solutions.pose
@@ -185,6 +197,17 @@ def draw_connections(image, landmarks, connections, color):
         pt_b = (int(lm_b.x * w), int(lm_b.y * h))
         cv2.line(image, pt_a, pt_b, color, 2)
 
+def draw_detections(image, detections):
+    for d in detections:
+        box = d.bounding_box
+        label = d.categories[0].category_name
+        score = d.categories[0].score
+        x1, y1 = box.origin_x, box.origin_y
+        x2, y2 = x1 + box.width, y1 + box.height
+        cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        cv2.putText(image, f"{label} {score:.0%}", (x1, y1 - 6),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+
 def draw_filled_area(image, landmarks, indices, color):
     h, w, _ = image.shape
 
@@ -217,6 +240,9 @@ while cap.isOpened():
     pose_results = pose.process(rgb)
 
     rgb.flags.writeable = True
+
+    mp_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+    obj_result = detector.detect(mp_img)
 
     # ---------- MediaPipe → OpenCV ----------
     output = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
@@ -262,7 +288,10 @@ while cap.isOpened():
         draw_points(output, lms, BODY_LANDMARKS["LEFT_LEG"],  (0, 255, 128))
         draw_points(output, lms, BODY_LANDMARKS["RIGHT_LEG"], (0, 128, 255))
 
-    cv2.imshow("MediaPipe Face, Hands & Body (0.10.31)", output)
+    # ========== OBJECT DETECTION ==========
+    draw_detections(output, obj_result.detections)
+
+    cv2.imshow("MediaPipe Face, Hands, Body & Objects (0.10.31)", output)
 
     if cv2.waitKey(1) & 0xFF == 27:  # ESC
         break
