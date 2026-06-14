@@ -140,8 +140,9 @@ PINKY_BOTTOM = 17
 # MEDIAPIPE INIT
 # ===============================
 
-# Modell herunterladen falls nicht vorhanden:
+# Modelle herunterladen falls nicht vorhanden:
 # wget https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float32/latest/efficientdet_lite0.tflite
+# wget https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/latest/gesture_recognizer.task
 _obj_options = mp_vision.ObjectDetectorOptions(
     base_options=mp_tasks.BaseOptions(model_asset_path="efficientdet_lite0.tflite"),
     running_mode=mp_vision.RunningMode.IMAGE,
@@ -149,6 +150,14 @@ _obj_options = mp_vision.ObjectDetectorOptions(
     max_results=5,
 )
 detector = mp_vision.ObjectDetector.create_from_options(_obj_options)
+
+# Recognized gestures: None, Closed_Fist, Open_Palm, Pointing_Up, Thumb_Down, Thumb_Up, Victory, ILoveYou
+_gesture_options = mp_vision.GestureRecognizerOptions(
+    base_options=mp_tasks.BaseOptions(model_asset_path="gesture_recognizer.task"),
+    running_mode=mp_vision.RunningMode.IMAGE,
+    num_hands=2,
+)
+gesture_recognizer = mp_vision.GestureRecognizer.create_from_options(_gesture_options)
 
 mp_face_mesh = mp.solutions.face_mesh
 mp_hands = mp.solutions.hands
@@ -243,6 +252,7 @@ while cap.isOpened():
 
     mp_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
     obj_result = detector.detect(mp_img)
+    gesture_result = gesture_recognizer.recognize(mp_img)
 
     # ---------- MediaPipe → OpenCV ----------
     output = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
@@ -287,6 +297,19 @@ while cap.isOpened():
         draw_points(output, lms, BODY_LANDMARKS["TORSO"],     (255, 200, 0))
         draw_points(output, lms, BODY_LANDMARKS["LEFT_LEG"],  (0, 255, 128))
         draw_points(output, lms, BODY_LANDMARKS["RIGHT_LEG"], (0, 128, 255))
+
+    # ========== GESTURE RECOGNITION ==========
+    if gesture_result.gestures:
+        h, w, _ = output.shape
+        for gesture_list, landmarks in zip(gesture_result.gestures, gesture_result.hand_landmarks):
+            gesture_name = gesture_list[0].category_name
+            score = gesture_list[0].score
+            wrist = landmarks[0]
+            cx = int(wrist.x * w)
+            cy = int(wrist.y * h)
+            cv2.putText(output, f"{gesture_name} {score:.0%}",
+                        (cx - 30, cy - 20),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
 
     # ========== OBJECT DETECTION ==========
     draw_detections(output, obj_result.detections)
