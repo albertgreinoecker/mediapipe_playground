@@ -162,6 +162,7 @@ gesture_recognizer = mp_vision.GestureRecognizer.create_from_options(_gesture_op
 mp_face_mesh = mp.solutions.face_mesh
 mp_hands = mp.solutions.hands
 mp_pose = mp.solutions.pose
+mp_selfie_seg = mp.solutions.selfie_segmentation
 
 face_mesh = mp_face_mesh.FaceMesh(
     static_image_mode=False,
@@ -185,6 +186,9 @@ pose = mp_pose.Pose(
     min_detection_confidence=0.5,
     min_tracking_confidence=0.5
 )
+
+# model_selection=1: landscape model (higher quality, slightly slower than 0)
+selfie_seg = mp_selfie_seg.SelfieSegmentation(model_selection=1)
 
 # ===============================
 # DRAW HELPER
@@ -247,6 +251,7 @@ while cap.isOpened():
     face_results = face_mesh.process(rgb)
     hand_results = hands.process(rgb)
     pose_results = pose.process(rgb)
+    seg_results = selfie_seg.process(rgb)
 
     rgb.flags.writeable = True
 
@@ -256,6 +261,12 @@ while cap.isOpened():
 
     # ---------- MediaPipe → OpenCV ----------
     output = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+
+    # ========== SELFIE SEGMENTATION ==========
+    if seg_results.segmentation_mask is not None:
+        mask = np.stack((seg_results.segmentation_mask,) * 3, axis=-1) > 0.1
+        bg_blur = cv2.GaussianBlur(output, (55, 55), 0)
+        output = np.where(mask, output, bg_blur)
 
     # ========== FACE ==========
     if face_results.multi_face_landmarks:
