@@ -1,6 +1,31 @@
 import cv2
 import mediapipe as mp
 import numpy as np
+
+# ===============================
+# BODY LANDMARK GROUPS  (MediaPipe Pose – 33 Punkte)
+# ===============================
+
+BODY_LANDMARKS = {
+    "FACE":           [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    "LEFT_ARM":       [11, 13, 15, 17, 19, 21],
+    "RIGHT_ARM":      [12, 14, 16, 18, 20, 22],
+    "TORSO":          [11, 12, 23, 24],
+    "LEFT_LEG":       [23, 25, 27, 29, 31],
+    "RIGHT_LEG":      [24, 26, 28, 30, 32],
+}
+
+# Verbindungen für das Skelett (Paare von Landmark-Indizes)
+BODY_CONNECTIONS = [
+    # Schultern – Hüften
+    (11, 12), (11, 23), (12, 24), (23, 24),
+    # Arme
+    (11, 13), (13, 15), (15, 17), (15, 19), (15, 21),
+    (12, 14), (14, 16), (16, 18), (16, 20), (16, 22),
+    # Beine
+    (23, 25), (25, 27), (27, 29), (27, 31),
+    (24, 26), (26, 28), (28, 30), (28, 32),
+]
 # ===============================
 # FACE LANDMARK GROUPS
 # ===============================
@@ -115,6 +140,7 @@ PINKY_BOTTOM = 17
 
 mp_face_mesh = mp.solutions.face_mesh
 mp_hands = mp.solutions.hands
+mp_pose = mp.solutions.pose
 
 face_mesh = mp_face_mesh.FaceMesh(
     static_image_mode=False,
@@ -131,6 +157,14 @@ hands = mp_hands.Hands(
     min_tracking_confidence=0.5
 )
 
+pose = mp_pose.Pose(
+    static_image_mode=False,
+    model_complexity=1,
+    smooth_landmarks=True,
+    min_detection_confidence=0.5,
+    min_tracking_confidence=0.5
+)
+
 # ===============================
 # DRAW HELPER
 # ===============================
@@ -141,6 +175,15 @@ def draw_points(image, landmarks, indices, color):
         lm = landmarks.landmark[idx]
         cx, cy = int(lm.x * w), int(lm.y * h)
         cv2.circle(image, (cx, cy), 2, color, -1)
+
+def draw_connections(image, landmarks, connections, color):
+    h, w, _ = image.shape
+    for a, b in connections:
+        lm_a = landmarks.landmark[a]
+        lm_b = landmarks.landmark[b]
+        pt_a = (int(lm_a.x * w), int(lm_a.y * h))
+        pt_b = (int(lm_b.x * w), int(lm_b.y * h))
+        cv2.line(image, pt_a, pt_b, color, 2)
 
 def draw_filled_area(image, landmarks, indices, color):
     h, w, _ = image.shape
@@ -171,6 +214,7 @@ while cap.isOpened():
 
     face_results = face_mesh.process(rgb)
     hand_results = hands.process(rgb)
+    pose_results = pose.process(rgb)
 
     rgb.flags.writeable = True
 
@@ -200,15 +244,25 @@ while cap.isOpened():
                 draw_points(output, hand_landmarks, finger, (0, 255, 0))
 
             dist_tip_finger = face_landmarks.landmark[INDEX_BOTTOM].y - hand_landmarks.landmark[INDEX_TIP].y
-            if dist_tip_finger > 0.4:
+            if dist_tip_finger > 0.3:
                 draw_filled_area(output, face_landmarks, FACE_EYES_FULL["LEFT_EYE"], (0, 0, 255))
                 draw_filled_area(output, face_landmarks, FACE_EYES_FULL["RIGHT_EYE"], (0, 0, 255))
 
-            dist_tip_finger = face_landmarks.landmark[PINKY_BOTTOM].y - hand_landmarks.landmark[PINKY_TIP].y
+            dist_tip_finger = hand_landmarks.landmark[PINKY_BOTTOM].y - hand_landmarks.landmark[PINKY_TIP].y
             if dist_tip_finger > 0.4:
                 draw_points(output, face_landmarks, FACE_JAW["JAWLINE"], (0, 255, 255))
 
-    cv2.imshow("MediaPipe Face & Hands (0.10.31)", output)
+    # ========== BODY / POSE ==========
+    if pose_results.pose_landmarks:
+        lms = pose_results.pose_landmarks
+        draw_connections(output, lms, BODY_CONNECTIONS, (200, 200, 200))
+        draw_points(output, lms, BODY_LANDMARKS["LEFT_ARM"],  (0, 255, 128))
+        draw_points(output, lms, BODY_LANDMARKS["RIGHT_ARM"], (0, 128, 255))
+        draw_points(output, lms, BODY_LANDMARKS["TORSO"],     (255, 200, 0))
+        draw_points(output, lms, BODY_LANDMARKS["LEFT_LEG"],  (0, 255, 128))
+        draw_points(output, lms, BODY_LANDMARKS["RIGHT_LEG"], (0, 128, 255))
+
+    cv2.imshow("MediaPipe Face, Hands & Body (0.10.31)", output)
 
     if cv2.waitKey(1) & 0xFF == 27:  # ESC
         break
